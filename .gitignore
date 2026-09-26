@@ -1,0 +1,10 @@
+.DS_Store
+# Intermediate/build-time data generation artifacts (not loaded by the app at runtime).
+# Regenerate via the scripts in data/ if needed.
+data/bulk_recipes.json
+data/community_recipes.json
+data/mega_recipes.json
+data/real_meals.json
+data/topup2_recipes.json
+data/variant_meals_ingredient.json
+data/burger_nugget_recipes.json

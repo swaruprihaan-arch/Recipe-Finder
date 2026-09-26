@@ -1,0 +1,2 @@
+variant_meals.json filter=lfs diff=lfs merge=lfs -text
+variant_meals.js filter=lfs diff=lfs merge=lfs -text
