@@ -207,7 +207,19 @@
   <p>Powered by <a href="https://www.themealdb.com/api.php" target="_blank">TheMealDB</a></p>
 </footer>
 
-<script src="variant_meals.js?v=10"></script>
+<script>
+  // GitHub Pages does not resolve Git LFS pointers — it would serve the
+  // pointer text file instead of the actual (163MB) recipe dataset. When
+  // running on github.io, load the real file straight from GitHub's
+  // LFS-aware media CDN instead of the same-origin path.
+  (function () {
+    var onPages = /\.github\.io$/.test(location.hostname);
+    var src = onPages
+      ? "https://media.githubusercontent.com/media/swaruprihaan-arch/Recipe-Finder/main/variant_meals.js"
+      : "variant_meals.js?v=10";
+    document.write('<script src="' + src + '"><\/script>');
+  })();
+</script>
 <script src="app.js?v=2"></script>
 </body>
 </html>
