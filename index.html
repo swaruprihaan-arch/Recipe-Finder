@@ -10,11 +10,19 @@
 </head>
 <body>
 
+<div id="apiKeyBanner" class="api-key-banner hidden">
+  <span id="apiKeyBannerText">⚠️ No Claude API key set — AI Chef won't work until you add one.</span>
+  <button id="apiKeyBannerBtn">Add API Key</button>
+  <button id="apiKeyBannerDismiss" class="api-key-banner-dismiss" title="Dismiss">✕</button>
+</div>
+
 <header class="site-header">
   <div class="header-inner">
     <div class="logo">🍳 Recipe<span>Finder</span></div>
     <nav class="tabs">
       <button class="tab-btn active" data-tab="discover">Discover</button>
+      <button class="tab-btn" data-tab="aichef">🤖 AI Chef</button>
+      <button class="tab-btn" data-tab="community">🌐 Community</button>
       <button class="tab-btn" data-tab="favorites">Favorites <span id="favCount" class="fav-badge hidden">0</span></button>
       <button class="tab-btn" data-tab="settings">⚙ Settings</button>
     </nav>
@@ -76,6 +84,26 @@
     </div>
   </section>
 
+  <!-- AI CHEF TAB -->
+  <section id="tab-aichef" class="tab-panel">
+    <p class="tagline">Tell the AI Chef what you've got — ingredients, seasonings, meal type, anything</p>
+
+    <section class="search-panel ai-chef-panel">
+      <textarea id="aiChefInput" rows="4" placeholder="e.g. I have salt and pepper as the seasonings and I want to make a breakfast meal using these as the seasonings for a potato"></textarea>
+      <div class="ai-chef-row">
+        <button id="aiChefBtn">✨ Find or Create My Recipe</button>
+        <span id="aiChefStatus" class="ai-chef-status"></span>
+      </div>
+      <div id="aiChefNoKey" class="ai-chef-notice hidden">
+        No Claude API key set yet. <button id="aiChefGoSettings" class="link-btn">Add it in Settings</button> to use AI Chef.
+      </div>
+    </section>
+
+    <div id="aiChefLoader" class="skeleton-grid hidden"></div>
+
+    <section id="aiChefResults" class="ai-chef-results"></section>
+  </section>
+
   <!-- FAVORITES TAB -->
   <section id="tab-favorites" class="tab-panel">
     <p class="tagline">Your saved recipes</p>
@@ -85,6 +113,17 @@
       No favorites yet. Tap the heart on any recipe to save it here.
     </div>
   </section>
+
+  <!-- COMMUNITY TAB -->
+  <section id="tab-community" class="tab-panel">
+    <p class="tagline">AI Chef recipes made by everyone on this device — publicly browsable</p>
+    <section id="communityResults" class="ai-chef-results"></section>
+    <div id="communityEmptyState" class="empty-state hidden">
+      <div class="empty-icon">🌐</div>
+      No community recipes yet. Ask AI Chef for one to add it here.
+    </div>
+  </section>
+
 
   <!-- SETTINGS TAB -->
   <section id="tab-settings" class="tab-panel">
@@ -165,6 +204,27 @@
             <input type="checkbox" id="liveSearchToggle" checked>
             <span class="switch-slider"></span>
           </label>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <h3>AI Chef</h3>
+        <div class="setting-row">
+          <div>
+            <div class="setting-label">Claude API Key</div>
+            <div class="setting-desc">Stored only in this browser (localStorage). Sent directly to Anthropic's API — never to any other server.</div>
+          </div>
+          <div class="api-key-input-wrap">
+            <input type="password" id="claudeApiKeyInput" class="settings-select" placeholder="sk-ant-...">
+            <button id="saveApiKeyBtn" class="tiny-btn">Save</button>
+            <button id="clearApiKeyBtn" class="tiny-btn danger-btn">Clear</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <div>
+            <div class="setting-label">Key status</div>
+            <div class="setting-desc" id="apiKeyStatus">No key saved</div>
+          </div>
         </div>
       </div>
 

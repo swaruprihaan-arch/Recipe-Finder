@@ -1,6 +1,9 @@
 const API_BASE = "https://www.themealdb.com/api/json/v1/1";
 const STORAGE_KEY = "recipeFinder.settings.v1";
 const FAVORITES_KEY = "recipeFinder.favorites.v1";
+const CLAUDE_KEY_STORAGE = "recipeFinder.claudeApiKey.v1";
+const CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
+const CLAUDE_MODEL = "claude-sonnet-4-5-20250929";
 
 const DEFAULT_SETTINGS = {
   theme: "light",
@@ -30,6 +33,8 @@ async function init() {
   bindSettingsUI();
   bindResultControls();
   bindModal();
+  bindAiChef();
+  bindApiKeyBanner();
 
   await Promise.all([populateCategories(), populateAreas(), populateIngredients(), loadVariantMeals()]);
   applyDefaultFilters();
@@ -72,6 +77,20 @@ function cacheEls() {
     defaultCategorySetting: document.getElementById("defaultCategorySetting"),
     liveSearchToggle: document.getElementById("liveSearchToggle"),
     toast: document.getElementById("toast"),
+    aiChefInput: document.getElementById("aiChefInput"),
+    aiChefBtn: document.getElementById("aiChefBtn"),
+    aiChefStatus: document.getElementById("aiChefStatus"),
+    aiChefNoKey: document.getElementById("aiChefNoKey"),
+    aiChefGoSettings: document.getElementById("aiChefGoSettings"),
+    aiChefLoader: document.getElementById("aiChefLoader"),
+    aiChefResults: document.getElementById("aiChefResults"),
+    claudeApiKeyInput: document.getElementById("claudeApiKeyInput"),
+    saveApiKeyBtn: document.getElementById("saveApiKeyBtn"),
+    clearApiKeyBtn: document.getElementById("clearApiKeyBtn"),
+    apiKeyStatus: document.getElementById("apiKeyStatus"),
+    apiKeyBanner: document.getElementById("apiKeyBanner"),
+    apiKeyBannerBtn: document.getElementById("apiKeyBannerBtn"),
+    apiKeyBannerDismiss: document.getElementById("apiKeyBannerDismiss"),
   });
 }
 
@@ -155,6 +174,8 @@ function switchTab(tab) {
   document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   document.querySelectorAll(".tab-panel").forEach((p) => p.classList.toggle("active", p.id === `tab-${tab}`));
   if (tab === "favorites") renderFavoritesTab();
+  if (tab === "aichef") updateAiChefKeyNotice();
+  if (tab === "community") renderCommunityTab();
 }
 
 /* ================= Settings UI bindings ================= */
@@ -233,6 +254,87 @@ function bindSettingsUI() {
   updateSegmented(els.viewSegmented, settings.view);
   els.liveSearchToggle.checked = settings.liveSearch;
   updateFavSummary();
+
+  bindApiKeyUI();
+}
+
+/* ================= Claude API key ================= */
+
+function getClaudeApiKey() {
+  try {
+    return localStorage.getItem(CLAUDE_KEY_STORAGE) || "";
+  } catch (e) { return ""; }
+}
+
+function setClaudeApiKey(key) {
+  try {
+    if (key) localStorage.setItem(CLAUDE_KEY_STORAGE, key);
+    else localStorage.removeItem(CLAUDE_KEY_STORAGE);
+  } catch (e) { /* storage unavailable */ }
+}
+
+function maskKey(key) {
+  if (!key) return "";
+  if (key.length <= 8) return "••••";
+  return key.slice(0, 7) + "…" + key.slice(-4);
+}
+
+function updateApiKeyStatus() {
+  const key = getClaudeApiKey();
+  if (els.apiKeyStatus) {
+    els.apiKeyStatus.textContent = key ? `Key saved (${maskKey(key)})` : "No key saved";
+  }
+}
+
+let apiKeyBannerDismissedForSession = false;
+
+function updateApiKeyBanner() {
+  if (!els.apiKeyBanner) return;
+  const hasKey = !!getClaudeApiKey();
+  const shouldShow = !hasKey && !apiKeyBannerDismissedForSession;
+  els.apiKeyBanner.classList.toggle("hidden", !shouldShow);
+}
+
+function bindApiKeyBanner() {
+  if (!els.apiKeyBanner) return;
+  els.apiKeyBannerBtn.addEventListener("click", () => {
+    switchTab("settings");
+    els.claudeApiKeyInput.focus();
+  });
+  els.apiKeyBannerDismiss.addEventListener("click", () => {
+    apiKeyBannerDismissedForSession = true;
+    updateApiKeyBanner();
+  });
+}
+
+function bindApiKeyUI() {
+  if (!els.saveApiKeyBtn) return;
+  updateApiKeyStatus();
+  updateApiKeyBanner();
+
+  els.saveApiKeyBtn.addEventListener("click", () => {
+    const val = els.claudeApiKeyInput.value.trim();
+    if (!val) {
+      showToast("Enter a Claude API key first");
+      return;
+    }
+    setClaudeApiKey(val);
+    els.claudeApiKeyInput.value = "";
+    updateApiKeyStatus();
+    updateAiChefKeyNotice();
+    updateApiKeyBanner();
+    showToast("Claude API key saved");
+  });
+
+  els.clearApiKeyBtn.addEventListener("click", () => {
+    setClaudeApiKey("");
+    els.claudeApiKeyInput.value = "";
+    updateApiKeyStatus();
+    updateAiChefKeyNotice();
+    apiKeyBannerDismissedForSession = false;
+    updateApiKeyBanner();
+    showToast("Claude API key cleared");
+  });
 }
 
 function applyDefaultFilters() {
@@ -838,4 +940,493 @@ function getIngredients(meal) {
     }
   }
   return list;
+}
+
+/* ================= AI Chef ================= */
+
+function updateAiChefKeyNotice() {
+  if (!els.aiChefNoKey) return;
+  const hasKey = !!getClaudeApiKey();
+  els.aiChefNoKey.classList.toggle("hidden", hasKey);
+  els.aiChefBtn.disabled = !hasKey;
+}
+
+function bindAiChef() {
+  if (!els.aiChefBtn) return;
+  updateAiChefKeyNotice();
+
+  els.aiChefGoSettings.addEventListener("click", () => {
+    switchTab("settings");
+    els.claudeApiKeyInput.focus();
+  });
+
+  els.aiChefBtn.addEventListener("click", runAiChef);
+  els.aiChefInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      runAiChef();
+    }
+  });
+}
+
+async function runAiChef() {
+  const prompt = els.aiChefInput.value.trim();
+  if (!prompt) {
+    showToast("Describe what you have and what you want to make");
+    return;
+  }
+  const apiKey = getClaudeApiKey();
+  if (!apiKey) {
+    updateAiChefKeyNotice();
+    showToast("Add your Claude API key in Settings first");
+    return;
+  }
+
+  setAiChefLoading(true);
+  els.aiChefResults.innerHTML = "";
+
+  try {
+    const understanding = await aiUnderstandRequest(prompt, apiKey);
+    els.aiChefStatus.textContent = "Searching real recipes...";
+
+    const realMatch = await findBestRealMatch(understanding);
+
+    // Only show a real match when it's a near-exact fit (uses almost all of
+    // what the user listed) — otherwise always generate a fresh AI recipe.
+    const allowedCount = (understanding.mainIngredients || []).length + (understanding.seasonings || []).length;
+    const isNearExact = realMatch && allowedCount > 0 && getIngredients(realMatch).length >= Math.max(1, allowedCount - 1);
+
+    if (isNearExact) {
+      els.aiChefStatus.textContent = "Found a real match!";
+      renderAiChefRealMatch(realMatch, understanding, prompt);
+    } else {
+      els.aiChefStatus.textContent = "Generating a custom recipe...";
+      const generated = await aiGenerateRecipe(prompt, understanding, apiKey);
+      enforceAllowedIngredients(generated, understanding);
+      await attachRecipeImageAndLinks(generated);
+      renderAiChefGenerated(generated);
+      addToCommunityRecipes(generated, prompt);
+    }
+    els.aiChefStatus.textContent = "";
+  } catch (e) {
+    console.error("AI Chef failed", e);
+    renderAiChefError(e);
+    els.aiChefStatus.textContent = "";
+  } finally {
+    setAiChefLoading(false);
+  }
+}
+
+function setAiChefLoading(isLoading) {
+  els.aiChefBtn.disabled = isLoading || !getClaudeApiKey();
+  if (isLoading) {
+    els.aiChefLoader.innerHTML = `<div class="skeleton-card" style="height:220px;grid-column:1/-1;"></div>`;
+    els.aiChefLoader.classList.remove("hidden");
+  } else {
+    els.aiChefLoader.classList.add("hidden");
+  }
+}
+
+async function callClaude(apiKey, systemPrompt, userPrompt, maxTokens) {
+  const res = await fetch(CLAUDE_API_URL, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify({
+      model: CLAUDE_MODEL,
+      max_tokens: maxTokens || 1024,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userPrompt }],
+    }),
+  });
+
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const errData = await res.json();
+      detail = errData.error && errData.error.message ? errData.error.message : JSON.stringify(errData);
+    } catch (e) { detail = res.statusText; }
+    const err = new Error(detail || `Claude API error (${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
+
+  const data = await res.json();
+  const textBlock = (data.content || []).find((b) => b.type === "text");
+  return textBlock ? textBlock.text : "";
+}
+
+function extractJson(text) {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const raw = fenced ? fenced[1] : text;
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start === -1 || end === -1) throw new Error("Could not parse AI response as JSON");
+  return JSON.parse(raw.slice(start, end + 1));
+}
+
+// Step 1: ask Claude to turn the free-text request into structured search terms.
+async function aiUnderstandRequest(prompt, apiKey) {
+  const system = `You turn a free-text home-cook request into structured search intent for a recipe app.
+Respond with ONLY a JSON object, no prose, no markdown fences, matching exactly this shape:
+{
+  "mainIngredients": ["string", ...],
+  "seasonings": ["string", ...],
+  "mealType": "breakfast|lunch|dinner|dessert|snack|side|other",
+  "cuisine": "string or empty",
+  "otherNotes": "string or empty",
+  "searchKeywords": ["string", ...]
+}
+"mainIngredients" are the core foods to cook (e.g. potato, chicken, eggs). "seasonings" are spices/condiments/aromatics used to flavor it, kept separate from mainIngredients. "searchKeywords" should be 2-5 short terms (single words or short phrases, in English) most likely to find a matching real recipe name or ingredient in a recipe database, ranked by how central they are to the dish (usually the main ingredient and meal type first).`;
+
+  const text = await callClaude(apiKey, system, prompt, 600);
+  return extractJson(text);
+}
+
+// Normalizes an ingredient name for loose matching (case, plural, punctuation).
+function normalizeIngredientName(str) {
+  let s = (str || "").toLowerCase().trim();
+  s = s.replace(/\([^)]*\)/g, " "); // drop parenthetical notes
+  s = s.replace(/[^a-z0-9\s]/g, " ");
+  s = s.replace(/\s+/g, " ").trim();
+  // crude singularization
+  if (s.length > 3 && s.endsWith("ies")) s = s.slice(0, -3) + "y";
+  else if (s.length > 3 && s.endsWith("es") && !s.endsWith("ses")) s = s.slice(0, -2);
+  else if (s.length > 3 && s.endsWith("s") && !s.endsWith("ss")) s = s.slice(0, -1);
+  return s;
+}
+
+// True if `ingredientName` is (loosely) covered by the user's allowed ingredient list.
+function isIngredientAllowed(ingredientName, normalizedAllowed) {
+  const norm = normalizeIngredientName(ingredientName);
+  if (!norm) return true; // empty/garbage ingredient slot, ignore
+  return normalizedAllowed.some((allowed) => {
+    if (!allowed) return false;
+    return norm === allowed || norm.includes(allowed) || allowed.includes(norm);
+  });
+}
+
+// A real recipe only counts as a match if EVERY one of its ingredients is
+// something the user actually said they have — using fewer is fine, but the
+// recipe can never require an ingredient outside the user's list.
+function mealUsesOnlyAllowedIngredients(meal, normalizedAllowed) {
+  const ingredients = getIngredients(meal);
+  if (!ingredients.length) return false;
+  return ingredients.every((i) => isIngredientAllowed(i.name, normalizedAllowed));
+}
+
+// Step 2: try to find a real TheMealDB (or local variant) recipe that fits,
+// using ONLY the ingredients (main ingredients + seasonings) the user listed.
+async function findBestRealMatch(understanding) {
+  const allowedRaw = (understanding.mainIngredients || []).concat(understanding.seasonings || []);
+  const normalizedAllowed = allowedRaw.map(normalizeIngredientName).filter(Boolean);
+  if (!normalizedAllowed.length) return null;
+
+  const keywords = (understanding.searchKeywords || []).concat(allowedRaw).filter(Boolean);
+
+  const candidateSets = [];
+  for (const kw of keywords.slice(0, 5)) {
+    try {
+      const res = await fetch(`${API_BASE}/filter.php?i=${encodeURIComponent(kw)}`);
+      const data = await res.json();
+      if (data.meals) candidateSets.push(data.meals);
+    } catch (e) { /* ignore individual failures */ }
+    try {
+      const res2 = await fetch(`${API_BASE}/search.php?s=${encodeURIComponent(kw)}`);
+      const data2 = await res2.json();
+      if (data2.meals) candidateSets.push(data2.meals);
+    } catch (e) { /* ignore */ }
+  }
+
+  const localHits = variantMeals.filter((m) => {
+    const name = m.strMeal.toLowerCase();
+    return keywords.some((kw) => name.includes(kw.toLowerCase()));
+  });
+  if (localHits.length) candidateSets.push(localHits);
+
+  const seen = new Set();
+  const candidates = [];
+  candidateSets.flat().forEach((m) => {
+    if (!seen.has(m.idMeal)) {
+      seen.add(m.idMeal);
+      candidates.push(m);
+    }
+  });
+
+  if (!candidates.length) return null;
+
+  // Bare filter/search results don't include the ingredient list, so we need
+  // full detail on each candidate before we can check the "only allowed
+  // ingredients" rule. Cap how many we hydrate to keep this fast.
+  const hydrated = [];
+  for (const m of candidates.slice(0, 25)) {
+    let meal = m;
+    if (!meal.strIngredient1) {
+      const localFull = findVariantById(meal.idMeal);
+      if (localFull) {
+        meal = localFull;
+      } else {
+        try {
+          const res = await fetch(`${API_BASE}/lookup.php?i=${meal.idMeal}`);
+          const data = await res.json();
+          if (data.meals && data.meals[0]) meal = data.meals[0];
+        } catch (e) { continue; }
+      }
+    }
+    hydrated.push(meal);
+  }
+
+  const eligible = hydrated.filter((m) => mealUsesOnlyAllowedIngredients(m, normalizedAllowed));
+  if (!eligible.length) return null;
+
+  const mealTypeToCategory = {
+    breakfast: ["Breakfast"],
+    dessert: ["Dessert"],
+    side: ["Side", "Starter"],
+    other: [],
+  };
+
+  const scored = eligible.map((m) => {
+    let score = 0;
+    const name = (m.strMeal || "").toLowerCase();
+    keywords.forEach((kw) => { if (name.includes(kw.toLowerCase())) score += 3; });
+    const wantedCats = mealTypeToCategory[understanding.mealType] || [];
+    if (wantedCats.includes(m.strCategory)) score += 4;
+    if (understanding.cuisine && m.strArea && m.strArea.toLowerCase() === understanding.cuisine.toLowerCase()) score += 3;
+    // Prefer recipes that use MORE of what the user has (closer to exact match).
+    score += getIngredients(m).length;
+    return { meal: m, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0].meal;
+}
+
+// Step 3: no real match found — ask Claude to generate a full custom recipe.
+async function aiGenerateRecipe(originalPrompt, understanding, apiKey) {
+  const system = `You are a professional home-cooking chef assistant. A user describes ingredients, seasonings, and what they want to cook. Create one complete, realistic, delicious recipe using ONLY the ingredients and seasonings the user actually listed.
+Respond with ONLY a JSON object, no prose, no markdown fences, matching exactly this shape:
+{
+  "title": "string",
+  "tagline": "one short enticing sentence",
+  "mealType": "string",
+  "cuisine": "string or empty",
+  "servings": "string",
+  "prepTime": "string",
+  "cookTime": "string",
+  "ingredients": [{"name": "string", "measure": "string"}, ...],
+  "instructions": ["step 1 string", "step 2 string", ...],
+  "chefTips": ["string", ...]
+}
+STRICT RULE: the "ingredients" list must contain ONLY items from the user's stated mainIngredients + seasonings (a subset is fine, using fewer of them is fine) — do NOT add any ingredient, spice, oil, water, garnish, or pantry staple the user did not mention, even a "small"/"optional" one. If the dish genuinely cannot be cooked at all without something basic like water or heat, you may use it only as a cooking medium mentioned in the instructions text (not water/heat as a listed ingredient) — but never introduce new flavoring ingredients. If chefTips exist, they must only suggest technique, not additional ingredients.`;
+
+  const userMsg = `User's request: "${originalPrompt}"\n\nStructured understanding: ${JSON.stringify(understanding)}`;
+  const text = await callClaude(apiKey, system, userMsg, 1600);
+  return extractJson(text);
+}
+
+function renderAiChefRealMatch(meal, understanding, prompt) {
+  ensureMealHasLinksAndImage(meal);
+  const ingredients = getIngredients(meal);
+  els.aiChefResults.innerHTML = `
+    <div class="ai-chef-card">
+      <span class="ai-chef-badge real-match">✅ Real recipe match from TheMealDB</span>
+      <h2>${meal.strMeal}</h2>
+      <div class="ai-chef-tagline">Matched to: "${escapeHtml(prompt)}"</div>
+      <div class="ai-chef-grid">
+        <div>
+          <h3>Ingredients</h3>
+          <ul>${ingredients.map((i) => `<li>${escapeHtml(i.name)}${i.measure ? ` — ${escapeHtml(i.measure)}` : ""}</li>`).join("")}</ul>
+        </div>
+        <div>
+          <h3>Instructions</h3>
+          <p style="white-space:pre-line;line-height:1.6;">${escapeHtml(meal.strInstructions || "")}</p>
+        </div>
+      </div>
+      <div class="ai-chef-actions">
+        <button data-view-full>View full recipe page</button>
+        <button data-save-fav>♡ Save to favorites</button>
+        <button data-try-again>Ask again</button>
+      </div>
+    </div>
+  `;
+  els.aiChefResults.querySelector("[data-view-full]").addEventListener("click", () => openRecipe(meal.idMeal));
+  els.aiChefResults.querySelector("[data-save-fav]").addEventListener("click", () => toggleFavorite(meal));
+  els.aiChefResults.querySelector("[data-try-again]").addEventListener("click", () => els.aiChefInput.focus());
+}
+
+function enforceAllowedIngredients(recipe, understanding) {
+  const allowedRaw = (understanding.mainIngredients || []).concat(understanding.seasonings || []);
+  const normalizedAllowed = allowedRaw.map(normalizeIngredientName).filter(Boolean);
+  if (!normalizedAllowed.length || !Array.isArray(recipe.ingredients)) return recipe;
+
+  const kept = recipe.ingredients.filter((i) => isIngredientAllowed(i.name, normalizedAllowed));
+  const removed = recipe.ingredients.filter((i) => !isIngredientAllowed(i.name, normalizedAllowed));
+  recipe.ingredients = kept;
+  if (removed.length) {
+    recipe.removedExtraIngredients = removed.map((i) => i.name);
+  }
+  return recipe;
+}
+
+function renderAiChefGenerated(recipe) {
+  const ingredients = recipe.ingredients || [];
+  const instructions = recipe.instructions || [];
+  const tips = recipe.chefTips || [];
+  els.aiChefResults.innerHTML = `
+    <div class="ai-chef-card">
+      <span class="ai-chef-badge">✨ AI Generated</span>
+      <img class="ai-chef-hero" src="${recipe.image || FALLBACK_THUMB}" alt="${escapeHtml(recipe.title || "Recipe")}" onerror="this.onerror=null;this.src='${FALLBACK_THUMB}';">
+      <h2>${escapeHtml(recipe.title || "Custom Recipe")}</h2>
+      <div class="ai-chef-tagline">${escapeHtml(recipe.tagline || "")}</div>
+      ${recipe.removedExtraIngredients && recipe.removedExtraIngredients.length ? `<div class="ai-chef-notice" style="margin-bottom:12px;">Removed ingredients you didn't list: ${escapeHtml(recipe.removedExtraIngredients.join(", "))}</div>` : ""}
+      <div class="ai-chef-tagline">
+        ${recipe.mealType ? `<span class="tag" style="margin-right:6px;">${escapeHtml(recipe.mealType)}</span>` : ""}
+        ${recipe.cuisine ? `<span class="tag" style="margin-right:6px;">${escapeHtml(recipe.cuisine)}</span>` : ""}
+        ${recipe.servings ? `Serves ${escapeHtml(recipe.servings)} · ` : ""}
+        ${recipe.prepTime ? `Prep ${escapeHtml(recipe.prepTime)} · ` : ""}
+        ${recipe.cookTime ? `Cook ${escapeHtml(recipe.cookTime)}` : ""}
+      </div>
+      <div class="ai-chef-grid">
+        <div>
+          <h3>Ingredients</h3>
+          <ul>${ingredients.map((i) => `<li>${escapeHtml(i.name)}${i.measure ? ` — ${escapeHtml(i.measure)}` : ""}</li>`).join("")}</ul>
+        </div>
+        <div>
+          <h3>Instructions</h3>
+          <ol>${instructions.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}</ol>
+          ${tips.length ? `<h3>Chef tips</h3><ul>${tips.map((t) => `<li>${escapeHtml(t)}</li>`).join("")}</ul>` : ""}
+        </div>
+      </div>
+      <div class="ai-chef-actions">
+        <a href="${recipe.youtubeLink || '#'}" target="_blank" rel="noopener" class="link-pill">▶ YouTube search</a>
+        <a href="${recipe.googleLink || '#'}" target="_blank" rel="noopener" class="link-pill">🔎 Google search</a>
+        <button data-save-generated>♡ Save to favorites</button>
+        <button data-try-again>Ask again</button>
+      </div>
+    </div>
+  `;
+  els.aiChefResults.querySelector("[data-try-again]").addEventListener("click", () => els.aiChefInput.focus());
+  els.aiChefResults.querySelector("[data-save-generated]").addEventListener("click", () => {
+    const id = `ai-${Date.now()}`;
+    favorites[id] = {
+      idMeal: id,
+      strMeal: recipe.title || "Custom Recipe",
+      strMealThumb: recipe.image || FALLBACK_THUMB,
+      strCategory: recipe.mealType || "AI Recipe",
+      strArea: recipe.cuisine || "",
+      isAiGenerated: true,
+      aiRecipe: recipe,
+    };
+    saveFavorites();
+    updateFavCountBadge();
+    updateFavSummary();
+    showToast("Saved to favorites");
+  });
+}
+
+function renderAiChefError(e) {
+  let msg = e.message || "Something went wrong.";
+  if (e.status === 401) msg = "Claude rejected the API key. Check it in Settings and try again.";
+  if (e.status === 429) msg = "Rate limited by Claude's API. Wait a moment and try again.";
+  els.aiChefResults.innerHTML = `<div class="ai-chef-error">⚠️ ${escapeHtml(msg)}</div>`;
+}
+
+function escapeHtml(str) {
+  return String(str == null ? "" : str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/* ================= AI Chef: images, links, community feed ================= */
+
+const FOODISH_API = "https://foodish-api.com/api";
+const COMMUNITY_RECIPES_KEY = "recipeFinder.communityRecipes.v1";
+const COMMUNITY_RECIPES_MAX = 300;
+
+// Gives a generated recipe a real food photo via a keyword-based hotlink
+// image service (no CORS fetch needed — <img src> loads cross-origin fine),
+// plus a YouTube/Google search link so every recipe has image + link(s) + full recipe.
+async function attachRecipeImageAndLinks(recipe) {
+  const name = recipe.title || "recipe";
+  const keyword = (name.split(/\s+/).slice(0, 3).join("") || "food").toLowerCase();
+  recipe.image = `https://picsum.photos/seed/${encodeURIComponent(keyword)}/480/360`;
+  recipe.youtubeLink = `https://www.youtube.com/results?search_query=${encodeURIComponent(name + " recipe")}`;
+  recipe.googleLink = `https://www.google.com/search?q=${encodeURIComponent(name + " recipe")}`;
+  return recipe;
+}
+
+/* ---- Public/community recipe feed (shared in this browser's storage;
+   rendered as a public-style feed anyone using this device can browse). ---- */
+
+function loadCommunityRecipes() {
+  try {
+    const raw = localStorage.getItem(COMMUNITY_RECIPES_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) { return []; }
+}
+
+function saveCommunityRecipes(list) {
+  try { localStorage.setItem(COMMUNITY_RECIPES_KEY, JSON.stringify(list)); } catch (e) { /* ignore */ }
+}
+
+function addToCommunityRecipes(recipe, prompt) {
+  const list = loadCommunityRecipes();
+  list.unshift({
+    id: `community-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    addedAt: Date.now(),
+    prompt,
+    recipe,
+  });
+  saveCommunityRecipes(list.slice(0, COMMUNITY_RECIPES_MAX));
+}
+
+function renderCommunityTab() {
+  const container = document.getElementById("communityResults");
+  const empty = document.getElementById("communityEmptyState");
+  if (!container) return;
+  const list = loadCommunityRecipes();
+
+  if (!list.length) {
+    container.innerHTML = "";
+    if (empty) empty.classList.remove("hidden");
+    return;
+  }
+  if (empty) empty.classList.add("hidden");
+
+  container.innerHTML = list.map((entry) => {
+    const r = entry.recipe;
+    const ingredients = r.ingredients || [];
+    const instructions = r.instructions || [];
+    return `
+      <div class="ai-chef-card">
+        <span class="ai-chef-badge">✨ AI Generated</span>
+        <img class="ai-chef-hero" src="${r.image || FALLBACK_THUMB}" alt="${escapeHtml(r.title || "Recipe")}" onerror="this.onerror=null;this.src='${FALLBACK_THUMB}';">
+        <h2>${escapeHtml(r.title || "Custom Recipe")}</h2>
+        <div class="ai-chef-tagline">${escapeHtml(r.tagline || "")}</div>
+        <div class="ai-chef-tagline">Requested: "${escapeHtml(entry.prompt || "")}"</div>
+        <div class="ai-chef-grid">
+          <div>
+            <h3>Ingredients</h3>
+            <ul>${ingredients.map((i) => `<li>${escapeHtml(i.name)}${i.measure ? ` — ${escapeHtml(i.measure)}` : ""}</li>`).join("")}</ul>
+          </div>
+          <div>
+            <h3>Instructions</h3>
+            <ol>${instructions.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}</ol>
+          </div>
+        </div>
+        <div class="ai-chef-actions">
+          <a href="${r.youtubeLink || '#'}" target="_blank" rel="noopener" class="link-pill">▶ YouTube search</a>
+          <a href="${r.googleLink || '#'}" target="_blank" rel="noopener" class="link-pill">🔎 Google search</a>
+        </div>
+      </div>
+    `;
+  }).join("");
 }
