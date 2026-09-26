@@ -609,13 +609,6 @@ footer a { color: var(--primary-dark); text-decoration: none; }
 }
 .tiny-btn.danger-btn { background: transparent; color: #d7263d; border: 1px solid rgba(215,38,61,0.4); }
 
-.ai-chef-hero {
-  width: 100%;
-  max-height: 260px;
-  object-fit: cover;
-  border-radius: 10px;
-  margin-bottom: 14px;
-}
 .link-pill {
   display: inline-block;
   border: 1px solid var(--border);

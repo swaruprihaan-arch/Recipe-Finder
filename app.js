@@ -1280,7 +1280,6 @@ function renderAiChefGenerated(recipe) {
   els.aiChefResults.innerHTML = `
     <div class="ai-chef-card">
       <span class="ai-chef-badge">✨ AI Generated</span>
-      <img class="ai-chef-hero" src="${recipe.image || FALLBACK_THUMB}" alt="${escapeHtml(recipe.title || "Recipe")}" onerror="this.onerror=null;this.src='${FALLBACK_THUMB}';">
       <h2>${escapeHtml(recipe.title || "Custom Recipe")}</h2>
       <div class="ai-chef-tagline">${escapeHtml(recipe.tagline || "")}</div>
       ${recipe.removedExtraIngredients && recipe.removedExtraIngredients.length ? `<div class="ai-chef-notice" style="margin-bottom:12px;">Removed ingredients you didn't list: ${escapeHtml(recipe.removedExtraIngredients.join(", "))}</div>` : ""}
@@ -1316,7 +1315,7 @@ function renderAiChefGenerated(recipe) {
     favorites[id] = {
       idMeal: id,
       strMeal: recipe.title || "Custom Recipe",
-      strMealThumb: recipe.image || FALLBACK_THUMB,
+      strMealThumb: FALLBACK_THUMB,
       strCategory: recipe.mealType || "AI Recipe",
       strArea: recipe.cuisine || "",
       isAiGenerated: true,
@@ -1351,13 +1350,10 @@ const FOODISH_API = "https://foodish-api.com/api";
 const COMMUNITY_RECIPES_KEY = "recipeFinder.communityRecipes.v1";
 const COMMUNITY_RECIPES_MAX = 300;
 
-// Gives a generated recipe a real food photo via a keyword-based hotlink
-// image service (no CORS fetch needed — <img src> loads cross-origin fine),
-// plus a YouTube/Google search link so every recipe has image + link(s) + full recipe.
+// Attaches YouTube/Google search links to a generated recipe (no image —
+// AI Chef recipes are text/links only, per product decision).
 async function attachRecipeImageAndLinks(recipe) {
   const name = recipe.title || "recipe";
-  const keyword = (name.split(/\s+/).slice(0, 3).join("") || "food").toLowerCase();
-  recipe.image = `https://picsum.photos/seed/${encodeURIComponent(keyword)}/480/360`;
   recipe.youtubeLink = `https://www.youtube.com/results?search_query=${encodeURIComponent(name + " recipe")}`;
   recipe.googleLink = `https://www.google.com/search?q=${encodeURIComponent(name + " recipe")}`;
   return recipe;
@@ -1408,7 +1404,6 @@ function renderCommunityTab() {
     return `
       <div class="ai-chef-card">
         <span class="ai-chef-badge">✨ AI Generated</span>
-        <img class="ai-chef-hero" src="${r.image || FALLBACK_THUMB}" alt="${escapeHtml(r.title || "Recipe")}" onerror="this.onerror=null;this.src='${FALLBACK_THUMB}';">
         <h2>${escapeHtml(r.title || "Custom Recipe")}</h2>
         <div class="ai-chef-tagline">${escapeHtml(r.tagline || "")}</div>
         <div class="ai-chef-tagline">Requested: "${escapeHtml(entry.prompt || "")}"</div>
