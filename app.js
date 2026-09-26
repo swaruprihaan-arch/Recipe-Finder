@@ -378,13 +378,22 @@ function fillSelect(select, items, key) {
   });
 }
 
+const LFS_MEDIA_BASE = "https://media.githubusercontent.com/media/swaruprihaan-arch/Recipe-Finder/main";
+
 async function loadVariantMeals() {
   try {
     if (Array.isArray(window.__RECIPE_VARIANT_DATA__)) {
       variantMeals = window.__RECIPE_VARIANT_DATA__;
       return;
     }
-    const res = await fetch("variant_meals.json");
+    // GitHub Pages does not resolve Git LFS pointers via a same-origin
+    // <script>/fetch of variant_meals.json (and the LFS media CDN serves it
+    // as text/plain, which browsers refuse to execute as a <script> under
+    // nosniff) — so on github.io, fetch the JSON straight from the LFS
+    // media CDN and JSON.parse it, which fetch() happily allows.
+    const onPages = /\.github\.io$/.test(location.hostname);
+    const url = onPages ? `${LFS_MEDIA_BASE}/variant_meals.json` : "variant_meals.json";
+    const res = await fetch(url);
     variantMeals = await res.json();
   } catch (e) {
     console.error("failed to load local variant recipes", e);
