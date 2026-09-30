@@ -10,12 +10,6 @@
 </head>
 <body>
 
-<div id="apiKeyBanner" class="api-key-banner hidden">
-  <span id="apiKeyBannerText">⚠️ No Claude API key set — AI Chef won't work until you add one.</span>
-  <button id="apiKeyBannerBtn">Add API Key</button>
-  <button id="apiKeyBannerDismiss" class="api-key-banner-dismiss" title="Dismiss">✕</button>
-</div>
-
 <header class="site-header">
   <div class="header-inner">
     <div class="logo">🍳 Recipe<span>Finder</span></div>
@@ -211,8 +205,8 @@
         <h3>AI Chef</h3>
         <div class="setting-row">
           <div>
-            <div class="setting-label">Claude API Key</div>
-            <div class="setting-desc">Stored only in this browser (localStorage). Sent directly to Anthropic's API — never to any other server.</div>
+            <div class="setting-label">Your Claude API key (optional)</div>
+            <div class="setting-desc">The site uses its built-in key unless you save your own here. A saved key is stored only in this browser (localStorage) and sent directly to Anthropic's API — never to any other server.</div>
           </div>
           <div class="api-key-input-wrap">
             <input type="password" id="claudeApiKeyInput" class="settings-select" placeholder="sk-ant-...">

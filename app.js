@@ -4,6 +4,9 @@ const FAVORITES_KEY = "recipeFinder.favorites.v1";
 const CLAUDE_KEY_STORAGE = "recipeFinder.claudeApiKey.v1";
 const CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
 const CLAUDE_MODEL = "claude-sonnet-4-5-20250929";
+// Built-in Claude API key. Used automatically whenever no key has been saved in Settings.
+// Paste the FULL key between the quotes (the Anthropic console shows it shortened as sk-ant-api03-z62...mgAA).
+const BUILT_IN_CLAUDE_KEY = "";
 
 const DEFAULT_SETTINGS = {
   theme: "light",
@@ -88,9 +91,6 @@ function cacheEls() {
     saveApiKeyBtn: document.getElementById("saveApiKeyBtn"),
     clearApiKeyBtn: document.getElementById("clearApiKeyBtn"),
     apiKeyStatus: document.getElementById("apiKeyStatus"),
-    apiKeyBanner: document.getElementById("apiKeyBanner"),
-    apiKeyBannerBtn: document.getElementById("apiKeyBannerBtn"),
-    apiKeyBannerDismiss: document.getElementById("apiKeyBannerDismiss"),
   });
 }
 
@@ -260,10 +260,20 @@ function bindSettingsUI() {
 
 /* ================= Claude API key ================= */
 
-function getClaudeApiKey() {
+// A key the user saved in Settings (empty if none).
+function getSavedClaudeApiKey() {
   try {
     return localStorage.getItem(CLAUDE_KEY_STORAGE) || "";
   } catch (e) { return ""; }
+}
+
+// The key actually used for requests: a saved key overrides the built-in one.
+function getClaudeApiKey() {
+  return getSavedClaudeApiKey() || BUILT_IN_CLAUDE_KEY;
+}
+
+function isUsingBuiltInKey() {
+  return !getSavedClaudeApiKey() && !!BUILT_IN_CLAUDE_KEY;
 }
 
 function setClaudeApiKey(key) {
@@ -280,32 +290,20 @@ function maskKey(key) {
 }
 
 function updateApiKeyStatus() {
-  const key = getClaudeApiKey();
-  if (els.apiKeyStatus) {
-    els.apiKeyStatus.textContent = key ? `Key saved (${maskKey(key)})` : "No key saved";
+  if (!els.apiKeyStatus) return;
+  const saved = getSavedClaudeApiKey();
+  if (saved) {
+    els.apiKeyStatus.textContent = `Using your own key (${maskKey(saved)})`;
+  } else if (BUILT_IN_CLAUDE_KEY) {
+    els.apiKeyStatus.textContent = `Using built-in key (${maskKey(BUILT_IN_CLAUDE_KEY)})`;
+  } else {
+    els.apiKeyStatus.textContent = "No key saved";
   }
 }
 
-let apiKeyBannerDismissedForSession = false;
+function updateApiKeyBanner() {}
 
-function updateApiKeyBanner() {
-  if (!els.apiKeyBanner) return;
-  const hasKey = !!getClaudeApiKey();
-  const shouldShow = !hasKey && !apiKeyBannerDismissedForSession;
-  els.apiKeyBanner.classList.toggle("hidden", !shouldShow);
-}
-
-function bindApiKeyBanner() {
-  if (!els.apiKeyBanner) return;
-  els.apiKeyBannerBtn.addEventListener("click", () => {
-    switchTab("settings");
-    els.claudeApiKeyInput.focus();
-  });
-  els.apiKeyBannerDismiss.addEventListener("click", () => {
-    apiKeyBannerDismissedForSession = true;
-    updateApiKeyBanner();
-  });
-}
+function bindApiKeyBanner() {}
 
 function bindApiKeyUI() {
   if (!els.saveApiKeyBtn) return;
@@ -331,9 +329,7 @@ function bindApiKeyUI() {
     els.claudeApiKeyInput.value = "";
     updateApiKeyStatus();
     updateAiChefKeyNotice();
-    apiKeyBannerDismissedForSession = false;
-    updateApiKeyBanner();
-    showToast("Claude API key cleared");
+    showToast(BUILT_IN_CLAUDE_KEY ? "Switched back to the built-in key" : "Claude API key cleared");
   });
 }
 
@@ -1222,7 +1218,8 @@ Respond with ONLY a JSON object, no prose, no markdown fences, matching exactly 
   "instructions": ["step 1 string", "step 2 string", ...],
   "chefTips": ["string", ...]
 }
-STRICT RULE: the "ingredients" list must contain ONLY items from the user's stated mainIngredients + seasonings (a subset is fine, using fewer of them is fine) — do NOT add any ingredient, spice, oil, water, garnish, or pantry staple the user did not mention, even a "small"/"optional" one. If the dish genuinely cannot be cooked at all without something basic like water or heat, you may use it only as a cooking medium mentioned in the instructions text (not water/heat as a listed ingredient) — but never introduce new flavoring ingredients. If chefTips exist, they must only suggest technique, not additional ingredients.`;
+STRICT RULE: the "ingredients" list must contain ONLY items from the user's stated mainIngredients + seasonings (a subset is fine, using fewer of them is fine) — do NOT add any ingredient, spice, oil, water, garnish, or pantry staple the user did not mention, even a "small"/"optional" one. If the dish genuinely cannot be cooked at all without something basic like water or heat, you may use it only as a cooking medium mentioned in the instructions text (not water/heat as a listed ingredient) — but never introduce new flavoring ingredients. If chefTips exist, they must only suggest technique, not additional ingredients.
+TITLE RULE: "title" must be SHORT and SIMPLE — 2 to 4 words max, like a normal recipe name a person would say out loud (e.g. "Salty Penne Pasta", "Garlic Butter Chicken", "Spicy Bean Tacos"). Never write long descriptive titles that list every ingredient or preparation detail (e.g. do NOT write "Olive Oil Penne Pasta With A Pinch Of Salt"). Use at most one descriptive adjective, then the main ingredient, then the dish type.`;
 
   const userMsg = `User's request: "${originalPrompt}"\n\nStructured understanding: ${JSON.stringify(understanding)}`;
   const text = await callClaude(apiKey, system, userMsg, 1600);
@@ -1330,7 +1327,11 @@ function renderAiChefGenerated(recipe) {
 
 function renderAiChefError(e) {
   let msg = e.message || "Something went wrong.";
-  if (e.status === 401) msg = "Claude rejected the API key. Check it in Settings and try again.";
+  if (e.status === 401) {
+    msg = isUsingBuiltInKey()
+      ? "Claude rejected the built-in API key. It may have been revoked. Add a new key in Settings."
+      : "Claude rejected the API key. Check it in Settings and try again.";
+  }
   if (e.status === 429) msg = "Rate limited by Claude's API. Wait a moment and try again.";
   els.aiChefResults.innerHTML = `<div class="ai-chef-error">⚠️ ${escapeHtml(msg)}</div>`;
 }
