@@ -1,0 +1,7 @@
+name = "recipe-finder-claude-proxy"
+main = "worker.js"
+compatibility_date = "2026-06-01"
+
+[vars]
+# Browser origins allowed to call this proxy (comma-separated). localhost is always allowed.
+ALLOWED_ORIGINS = "https://swaruprihaan-arch.github.io"

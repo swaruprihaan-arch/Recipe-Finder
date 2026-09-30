@@ -88,9 +88,6 @@
         <button id="aiChefBtn">✨ Find or Create My Recipe</button>
         <span id="aiChefStatus" class="ai-chef-status"></span>
       </div>
-      <div id="aiChefNoKey" class="ai-chef-notice hidden">
-        No Claude API key set yet. <button id="aiChefGoSettings" class="link-btn">Add it in Settings</button> to use AI Chef.
-      </div>
     </section>
 
     <div id="aiChefLoader" class="skeleton-grid hidden"></div>
@@ -206,7 +203,7 @@
         <div class="setting-row">
           <div>
             <div class="setting-label">Your Claude API key (optional)</div>
-            <div class="setting-desc">The site uses its built-in key unless you save your own here. A saved key is stored only in this browser (localStorage) and sent directly to Anthropic's API — never to any other server.</div>
+            <div class="setting-desc">The site uses its built-in key unless you save your own here. A saved key is stored only in this browser (localStorage) and passed through the site's proxy to Anthropic — it is never stored anywhere else.</div>
           </div>
           <div class="api-key-input-wrap">
             <input type="password" id="claudeApiKeyInput" class="settings-select" placeholder="sk-ant-...">

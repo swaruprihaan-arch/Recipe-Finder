@@ -2,11 +2,10 @@ const API_BASE = "https://www.themealdb.com/api/json/v1/1";
 const STORAGE_KEY = "recipeFinder.settings.v1";
 const FAVORITES_KEY = "recipeFinder.favorites.v1";
 const CLAUDE_KEY_STORAGE = "recipeFinder.claudeApiKey.v1";
-const CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
+// AI Chef requests go through the Cloudflare Worker in proxy/, which holds the
+// site's Claude API key as a secret. The key is never present in this code.
+const CLAUDE_API_URL = "https://recipe-finder-claude-proxy.swarup-bio.workers.dev";
 const CLAUDE_MODEL = "claude-sonnet-4-5-20250929";
-// Built-in Claude API key. Used automatically whenever no key has been saved in Settings.
-// Paste the FULL key between the quotes (the Anthropic console shows it shortened as sk-ant-api03-z62...mgAA).
-const BUILT_IN_CLAUDE_KEY = "";
 
 const DEFAULT_SETTINGS = {
   theme: "light",
@@ -83,8 +82,6 @@ function cacheEls() {
     aiChefInput: document.getElementById("aiChefInput"),
     aiChefBtn: document.getElementById("aiChefBtn"),
     aiChefStatus: document.getElementById("aiChefStatus"),
-    aiChefNoKey: document.getElementById("aiChefNoKey"),
-    aiChefGoSettings: document.getElementById("aiChefGoSettings"),
     aiChefLoader: document.getElementById("aiChefLoader"),
     aiChefResults: document.getElementById("aiChefResults"),
     claudeApiKeyInput: document.getElementById("claudeApiKeyInput"),
@@ -174,7 +171,6 @@ function switchTab(tab) {
   document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
   document.querySelectorAll(".tab-panel").forEach((p) => p.classList.toggle("active", p.id === `tab-${tab}`));
   if (tab === "favorites") renderFavoritesTab();
-  if (tab === "aichef") updateAiChefKeyNotice();
   if (tab === "community") renderCommunityTab();
 }
 
@@ -267,13 +263,9 @@ function getSavedClaudeApiKey() {
   } catch (e) { return ""; }
 }
 
-// The key actually used for requests: a saved key overrides the built-in one.
-function getClaudeApiKey() {
-  return getSavedClaudeApiKey() || BUILT_IN_CLAUDE_KEY;
-}
-
+// True when no personal key is saved, so the proxy uses the site's built-in key.
 function isUsingBuiltInKey() {
-  return !getSavedClaudeApiKey() && !!BUILT_IN_CLAUDE_KEY;
+  return !getSavedClaudeApiKey();
 }
 
 function setClaudeApiKey(key) {
@@ -294,10 +286,8 @@ function updateApiKeyStatus() {
   const saved = getSavedClaudeApiKey();
   if (saved) {
     els.apiKeyStatus.textContent = `Using your own key (${maskKey(saved)})`;
-  } else if (BUILT_IN_CLAUDE_KEY) {
-    els.apiKeyStatus.textContent = `Using built-in key (${maskKey(BUILT_IN_CLAUDE_KEY)})`;
   } else {
-    els.apiKeyStatus.textContent = "No key saved";
+    els.apiKeyStatus.textContent = "Using the site's built-in key";
   }
 }
 
@@ -319,7 +309,6 @@ function bindApiKeyUI() {
     setClaudeApiKey(val);
     els.claudeApiKeyInput.value = "";
     updateApiKeyStatus();
-    updateAiChefKeyNotice();
     updateApiKeyBanner();
     showToast("Claude API key saved");
   });
@@ -328,8 +317,7 @@ function bindApiKeyUI() {
     setClaudeApiKey("");
     els.claudeApiKeyInput.value = "";
     updateApiKeyStatus();
-    updateAiChefKeyNotice();
-    showToast(BUILT_IN_CLAUDE_KEY ? "Switched back to the built-in key" : "Claude API key cleared");
+    showToast("Switched back to the site's built-in key");
   });
 }
 
@@ -940,21 +928,8 @@ function getIngredients(meal) {
 
 /* ================= AI Chef ================= */
 
-function updateAiChefKeyNotice() {
-  if (!els.aiChefNoKey) return;
-  const hasKey = !!getClaudeApiKey();
-  els.aiChefNoKey.classList.toggle("hidden", hasKey);
-  els.aiChefBtn.disabled = !hasKey;
-}
-
 function bindAiChef() {
   if (!els.aiChefBtn) return;
-  updateAiChefKeyNotice();
-
-  els.aiChefGoSettings.addEventListener("click", () => {
-    switchTab("settings");
-    els.claudeApiKeyInput.focus();
-  });
 
   els.aiChefBtn.addEventListener("click", runAiChef);
   els.aiChefInput.addEventListener("keydown", (e) => {
@@ -971,12 +946,8 @@ async function runAiChef() {
     showToast("Describe what you have and what you want to make");
     return;
   }
-  const apiKey = getClaudeApiKey();
-  if (!apiKey) {
-    updateAiChefKeyNotice();
-    showToast("Add your Claude API key in Settings first");
-    return;
-  }
+  // Empty when no personal key is saved; the proxy then uses the site's built-in key.
+  const apiKey = getSavedClaudeApiKey();
 
   setAiChefLoading(true);
   els.aiChefResults.innerHTML = "";
@@ -1014,7 +985,7 @@ async function runAiChef() {
 }
 
 function setAiChefLoading(isLoading) {
-  els.aiChefBtn.disabled = isLoading || !getClaudeApiKey();
+  els.aiChefBtn.disabled = isLoading;
   if (isLoading) {
     els.aiChefLoader.innerHTML = `<div class="skeleton-card" style="height:220px;grid-column:1/-1;"></div>`;
     els.aiChefLoader.classList.remove("hidden");
@@ -1028,9 +999,8 @@ async function callClaude(apiKey, systemPrompt, userPrompt, maxTokens) {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
+      // Only sent when the visitor saved their own key; otherwise the proxy uses the site's key.
+      ...(apiKey ? { "x-api-key": apiKey } : {}),
     },
     body: JSON.stringify({
       model: CLAUDE_MODEL,
@@ -1329,7 +1299,7 @@ function renderAiChefError(e) {
   let msg = e.message || "Something went wrong.";
   if (e.status === 401) {
     msg = isUsingBuiltInKey()
-      ? "Claude rejected the built-in API key. It may have been revoked. Add a new key in Settings."
+      ? "Claude rejected the site's built-in API key. It may have been revoked. You can add your own key in Settings."
       : "Claude rejected the API key. Check it in Settings and try again.";
   }
   if (e.status === 429) msg = "Rate limited by Claude's API. Wait a moment and try again.";
